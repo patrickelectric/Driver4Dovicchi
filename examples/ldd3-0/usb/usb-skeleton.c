@@ -20,8 +20,11 @@
 #include <linux/module.h>
 #include <linux/kref.h>
 #include <linux/usb.h>
+#include <linux/timer.h>
 #include <asm/uaccess.h>
 
+
+struct timer_list timer1;
 
 /* Define these values to match your devices */
 #define USB_SKEL_VENDOR_ID	0x0403
@@ -39,6 +42,7 @@ MODULE_DEVICE_TABLE (usb, skel_table);
 #define USB_SKEL_MINOR_BASE	192
 
 /* Structure to hold all of our device specific stuff */
+struct usb_device *	udev2;
 struct usb_skel {
 	struct usb_device *	udev;			/* the usb device for this device */
 	struct usb_interface *	interface;		/* the interface for this device */
@@ -244,6 +248,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 	kref_init(&dev->kref);
 
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
+	udev2 = dev->udev;
 	dev->interface = interface;
 
 	/* set up the endpoint information */
@@ -326,9 +331,33 @@ static struct usb_driver skel_driver = {
 	.disconnect = skel_disconnect,
 };
 
+int i;
+
+void timer1_routine(unsigned long data)
+{
+
+	//printk(KERN_ALERT"Inside Timer Routine count-> %d data passed %ld\n",i++,data);
+	printk("Inside Timer Routine count-> %d data passed %ld\n",i++,data);
+	mod_timer(&timer1, jiffies + HZ); /* restarting timer */
+
+
+
+	char buffer[]={'a'};
+	usb_control_msg(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0
+          , 0, 0, NULL, buffer, 1, 1000);
+          
+}
+
 static int __init usb_skel_init(void)
 {
 	int result;
+
+	init_timer(&timer1);
+	timer1.function = timer1_routine;
+	timer1.data = 1;
+	timer1.expires = jiffies + HZ; /* 1 second */
+	add_timer(&timer1); /* Starting the timer */
+	printk(KERN_ALERT"Timer Module loaded\n");
 
 	/* register this driver with the USB subsystem */
 	result = usb_register(&skel_driver);
