@@ -35,6 +35,12 @@ static struct usb_device_id skel_table [] = {
 	{ USB_DEVICE(USB_SKEL_VENDOR_ID, USB_SKEL_PRODUCT_ID) },
 	{ }					/* Terminating entry */
 };
+
+struct patrick_vai 
+{
+	struct usb_device	*udev;
+};
+
 MODULE_DEVICE_TABLE (usb, skel_table);
 
 
@@ -58,7 +64,7 @@ struct usb_skel {
 
 static struct usb_driver skel_driver;
 
-void timer1_routine(struct usb_device *data);	
+void timer1_routine(unsigned long data_pass);
 
 static void skel_delete(struct kref *kref)
 {	
@@ -301,12 +307,28 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 		goto error;
 	}
 
+	// create struct
+	struct patrick_vai *data;
+	// alocs struct
+	data = kmalloc(sizeof(*data), GFP_KERNEL);
+
+	if (!data)
+	{
+		printk("Can't allocate memory for data structure");
+		return -99;
+	}
+
+	// clear all
+	memset(data, 0, sizeof(*data));
+	// pass udev
+	data->udev = udev2;
+
 	/* let the user know what node this device is now attached to */
 	dev_info(&interface->dev, "USB Skeleton device now attached to USBSkel-%d", interface->minor);
 
 	init_timer(&timer1);
 	timer1.function = timer1_routine;
-	timer1.data = &interface->dev;
+	timer1.data = (unsigned long) data;
 	timer1.expires = jiffies + HZ; /* 1 second */
 	printk(KERN_ALERT"Timer Module loaded\n");
 	add_timer(&timer1); /* Starting the timer */
@@ -347,16 +369,23 @@ static struct usb_driver skel_driver = {
 
 int i;
 
-void timer1_routine(struct usb_device *data)
+void timer1_routine(unsigned long data_pass)
 {
+	struct patrick_vai *data = (struct patrick_vai *) data_pass;
 
 	//printk(KERN_ALERT"Inside Timer Routine count-> %d data passed %ld\n",i++,data);
-	printk("Inside Timer Routine count-> %d data passed %ld\n",i++,data);
+	printk("Inside Timer Routine count-> %d data passed %02X\n",i++,data);
+	printk("Inside Timer idProduct %02X, idVendor %02X\n",data->udev->descriptor.idProduct,data->udev->descriptor.idVendor);
 	mod_timer(&timer1, jiffies + HZ); /* restarting timer */
 
-	char buffer[]={'a'};
+	char buffer[3];
+	memset(&buffer,0,sizeof(buffer));
+	buffer[0]='a';
+	buffer[1]='\n';
+
 	//usb_sndbulkpipe(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0 , 0, 0, NULL, buffer, 1, 1000);
-	//usb_bulk_msg(data, usb_sndctrlpipe(data, 0), buffer, 1, 1, 1);
+	//usb_bulk_msg(data->udev, usb_sndctrlpipe(data->udev, 0), buffer, 1, 1, 1);
+	//usb_control_msg(data->udev, usb_sndctrlpipe(data->udev, 0), 0x09, 0x21, 0x0, 0x0, &buffer, 1, HZ*5);
           
 }
 
