@@ -51,10 +51,14 @@ struct usb_skel {
 	__u8			bulk_in_endpointAddr;	/* the address of the bulk in endpoint */
 	__u8			bulk_out_endpointAddr;	/* the address of the bulk out endpoint */
 	struct kref		kref;
+
 };
+
 #define to_skel_dev(d) container_of(d, struct usb_skel, kref)
 
 static struct usb_driver skel_driver;
+
+void timer1_routine(struct usb_device *data);	
 
 static void skel_delete(struct kref *kref)
 {	
@@ -299,6 +303,14 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 
 	/* let the user know what node this device is now attached to */
 	dev_info(&interface->dev, "USB Skeleton device now attached to USBSkel-%d", interface->minor);
+
+	init_timer(&timer1);
+	timer1.function = timer1_routine;
+	timer1.data = &interface->dev;
+	timer1.expires = jiffies + HZ; /* 1 second */
+	printk(KERN_ALERT"Timer Module loaded\n");
+	add_timer(&timer1); /* Starting the timer */
+
 	return 0;
 
 error:
@@ -322,6 +334,8 @@ static void skel_disconnect(struct usb_interface *interface)
 	kref_put(&dev->kref, skel_delete);
 
 	dev_info(&interface->dev, "USB Skeleton #%d now disconnected", minor);
+	printk(KERN_ALERT"Timer Module killed\n");
+	del_timer(&timer1);
 }
 
 static struct usb_driver skel_driver = {
@@ -333,31 +347,22 @@ static struct usb_driver skel_driver = {
 
 int i;
 
-void timer1_routine(unsigned long data)
+void timer1_routine(struct usb_device *data)
 {
 
 	//printk(KERN_ALERT"Inside Timer Routine count-> %d data passed %ld\n",i++,data);
 	printk("Inside Timer Routine count-> %d data passed %ld\n",i++,data);
 	mod_timer(&timer1, jiffies + HZ); /* restarting timer */
 
-
-
 	char buffer[]={'a'};
-	usb_control_msg(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0
-          , 0, 0, NULL, buffer, 1, 1000);
+	//usb_sndbulkpipe(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0 , 0, 0, NULL, buffer, 1, 1000);
+	//usb_bulk_msg(data, usb_sndctrlpipe(data, 0), buffer, 1, 1, 1);
           
 }
 
 static int __init usb_skel_init(void)
 {
 	int result;
-
-	init_timer(&timer1);
-	timer1.function = timer1_routine;
-	timer1.data = 1;
-	timer1.expires = jiffies + HZ; /* 1 second */
-	add_timer(&timer1); /* Starting the timer */
-	printk(KERN_ALERT"Timer Module loaded\n");
 
 	/* register this driver with the USB subsystem */
 	result = usb_register(&skel_driver);
