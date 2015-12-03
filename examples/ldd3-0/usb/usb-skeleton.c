@@ -22,6 +22,7 @@
 #include <linux/usb.h>
 #include <linux/timer.h>
 #include <asm/uaccess.h>
+#include <linux/fs.h>
 
 
 struct timer_list timer1;
@@ -36,11 +37,12 @@ static struct usb_device_id skel_table [] = {
 	{ }					/* Terminating entry */
 };
 
-struct patrick_vai 
+/*
+struct usb_skel 
 {
 	struct usb_device	*udev;
 };
-
+*/
 MODULE_DEVICE_TABLE (usb, skel_table);
 
 
@@ -308,7 +310,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 	}
 
 	// create struct
-	struct patrick_vai *data;
+	struct usb_skel *data;
 	// alocs struct
 	data = kmalloc(sizeof(*data), GFP_KERNEL);
 
@@ -371,22 +373,81 @@ int i;
 
 void timer1_routine(unsigned long data_pass)
 {
-	struct patrick_vai *data = (struct patrick_vai *) data_pass;
+	struct usb_skel *dev = (struct usb_skel *) data_pass;
 
 	//printk(KERN_ALERT"Inside Timer Routine count-> %d data passed %ld\n",i++,data);
-	printk("Inside Timer Routine count-> %d data passed %02X\n",i++,data);
-	printk("Inside Timer idProduct %02X, idVendor %02X\n",data->udev->descriptor.idProduct,data->udev->descriptor.idVendor);
+	printk("Inside Timer Routine count-> %d data passed %02X\n",i++,dev);
+	printk("Inside Timer idProduct %02X, idVendor %02X\n",dev->udev->descriptor.idProduct,dev->udev->descriptor.idVendor);
 	mod_timer(&timer1, jiffies + HZ); /* restarting timer */
 
-	char buffer[3];
-	memset(&buffer,0,sizeof(buffer));
-	buffer[0]='a';
-	buffer[1]='\n';
+	//char buffer[3];
+	//memset(&buffer,0,sizeof(buffer));
+	//buffer[0]='a';
+	//buffer[1]='\n';
 
 	//usb_sndbulkpipe(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0 , 0, 0, NULL, buffer, 1, 1000);
 	//usb_bulk_msg(data->udev, usb_sndctrlpipe(data->udev, 0), buffer, 1, 1, 1);
 	//usb_control_msg(data->udev, usb_sndctrlpipe(data->udev, 0), 0x09, 0x21, 0x0, 0x0, &buffer, 1, HZ*5);
-          
+
+	#if 1
+	struct file * file = filp_open("/dev/skel0", O_RDWR | O_SYNC,0);
+	dev = (struct usb_skel *)file->private_data;
+	int count=3;
+	int retval = 0;
+	struct urb *urb = NULL;
+	char *buf = NULL;
+
+	/* verify that we actually have some data to write */
+	if (count == 0)
+		goto exit;
+
+	/* create a urb, and a buffer for it, and copy the data to the urb */
+	urb = usb_alloc_urb(0, GFP_KERNEL);
+	if (!urb) {
+		retval = -ENOMEM;
+		goto error;
+	}
+
+	buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+	if (!buf) {
+		retval = -ENOMEM;
+		goto error;
+	}
+	/*
+	if (copy_from_user(buf, user_buffer, count)) {
+		retval = -EFAULT;
+		goto error;
+	}
+	*/
+	buf[0]='a';
+	buf[1]='b';
+	buf[2]='c';
+
+	/* initialize the urb properly */
+	usb_fill_bulk_urb(urb, dev->udev,
+			  usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
+			  buf, count, skel_write_bulk_callback, dev);
+	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
+
+	/* send the data out the bulk port */
+	retval = usb_submit_urb(urb, GFP_KERNEL);
+	if (retval) {
+		pr_err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
+		goto error;
+	}
+
+	/* release our reference to this urb, the USB core will eventually free it entirely */
+	usb_free_urb(urb);
+
+exit:
+	return count;
+
+error:
+	usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
+	usb_free_urb(urb);
+	kfree(buf);
+	return retval;          
+#endif
 }
 
 static int __init usb_skel_init(void)
