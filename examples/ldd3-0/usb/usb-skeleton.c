@@ -22,27 +22,17 @@
 #include <linux/usb.h>
 #include <linux/timer.h>
 #include <asm/uaccess.h>
-#include <linux/fs.h>
 
 
-struct timer_list timer1;
+struct timer_list timer_write_periodic;
 
-/* Define these values to match your devices */
-#define USB_SKEL_VENDOR_ID	0x0403
-#define USB_SKEL_PRODUCT_ID	0x6001
 
-/* table of devices that work with this driver */
 static struct usb_device_id skel_table [] = {
-	{ USB_DEVICE(USB_SKEL_VENDOR_ID, USB_SKEL_PRODUCT_ID) },
-	{ }					/* Terminating entry */
+        //{ USB_DEVICE(0x1A86, 0x7523) },  // ARDUINO NANO DOUGLAs
+		{ USB_DEVICE(0x0403, 0x6001) },  // ARDUINO NANO DOUGLAs
+        { }				 // Last entry
 };
 
-/*
-struct usb_skel 
-{
-	struct usb_device	*udev;
-};
-*/
 MODULE_DEVICE_TABLE (usb, skel_table);
 
 
@@ -52,14 +42,13 @@ MODULE_DEVICE_TABLE (usb, skel_table);
 /* Structure to hold all of our device specific stuff */
 struct usb_device *	udev2;
 struct usb_skel {
-	struct usb_device *	udev;			/* the usb device for this device */
-	struct usb_interface *	interface;		/* the interface for this device */
-	unsigned char *		bulk_in_buffer;		/* the buffer to receive data */
-	size_t			bulk_in_size;		/* the size of the receive buffer */
-	__u8			bulk_in_endpointAddr;	/* the address of the bulk in endpoint */
-	__u8			bulk_out_endpointAddr;	/* the address of the bulk out endpoint */
-	struct kref		kref;
-
+    struct usb_device *         udev;                   /* the usb device for this device */
+    struct usb_interface *	interface;		/* the interface for this device */
+    unsigned char *             bulk_in_buffer;         /* the buffer to receive data */
+    size_t			bulk_in_size;           /* the size of the receive buffer */
+    __u8			bulk_in_endpointAddr;	/* the address of the bulk in endpoint */
+    __u8			bulk_out_endpointAddr;	/* the address of the bulk out endpoint */
+    struct kref                 kref;
 };
 
 #define to_skel_dev(d) container_of(d, struct usb_skel, kref)
@@ -68,167 +57,273 @@ static struct usb_driver skel_driver;
 
 void timer1_routine(unsigned long data_pass);
 
+int step;
+
+
+
+
+/************************************************************************************
+*  DELETE
+************************************************************************************/
+
 static void skel_delete(struct kref *kref)
 {	
-	struct usb_skel *dev = to_skel_dev(kref);
-
-	usb_put_dev(dev->udev);
-	kfree (dev->bulk_in_buffer);
-	kfree (dev);
+    struct usb_skel *dev = to_skel_dev(kref);
+    usb_put_dev(dev->udev);
+    kfree (dev->bulk_in_buffer);
+    kfree (dev);
 }
+
+/************************************************************************************
+*  OPEN
+************************************************************************************/
 
 static int skel_open(struct inode *inode, struct file *file)
 {
-	struct usb_skel *dev;
-	struct usb_interface *interface;
-	int subminor;
-	int retval = 0;
+    struct usb_skel *dev;
+    struct usb_interface *interface;
+    int subminor;
+    int retval = 0;
 
-	subminor = iminor(inode);
+    subminor = iminor(inode);
 
-	interface = usb_find_interface(&skel_driver, subminor);
-	if (!interface) {
-		pr_err("%s - error, can't find device for minor %d",
-		     __FUNCTION__, subminor);
-		retval = -ENODEV;
-		goto exit;
-	}
+    interface = usb_find_interface(&skel_driver, subminor);
+    if (!interface) {
+        pr_err("%s - error, can't find device for minor %d", __FUNCTION__, subminor);
+        retval = -ENODEV;
+        goto exit;
+    }
 
-	dev = usb_get_intfdata(interface);
-	if (!dev) {
-		retval = -ENODEV;
-		goto exit;
-	}
-	
-	/* increment our usage count for the device */
-	kref_get(&dev->kref);
+    dev = usb_get_intfdata(interface);
+    if (!dev) {
+        retval = -ENODEV;
+        goto exit;
+    }
 
-	/* save our object in the file's private structure */
-	file->private_data = dev;
+    /* increment our usage count for the device */
+    kref_get(&dev->kref);
+
+    /* save our object in the file's private structure */
+    file->private_data = dev;
 
 exit:
-	return retval;
+    return retval;
 }
+
+
+/************************************************************************************
+*  RELEASE
+************************************************************************************/
 
 static int skel_release(struct inode *inode, struct file *file)
 {
-	struct usb_skel *dev;
+    struct usb_skel *dev;
 
-	dev = (struct usb_skel *)file->private_data;
-	if (dev == NULL)
-		return -ENODEV;
+    dev = (struct usb_skel *)file->private_data;
+    if (dev == NULL)
+        return -ENODEV;
 
-	/* decrement the count on our device */
-	kref_put(&dev->kref, skel_delete);
-	return 0;
+    /* decrement the count on our device */
+    kref_put(&dev->kref, skel_delete);
+    return 0;
 }
+
+
+/************************************************************************************
+*  READ
+************************************************************************************/
 
 static ssize_t skel_read(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
-	struct usb_skel *dev;
-	int retval = 0;
+    struct usb_skel *dev;
+    int retval = 0;
 
-	dev = (struct usb_skel *)file->private_data;
-	
-	/* do a blocking bulk read to get data from the device */
-	retval = usb_bulk_msg(dev->udev,
-			      usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
-			      dev->bulk_in_buffer,
-			      min(dev->bulk_in_size, count),
-			      &count, HZ*10);
+    dev = (struct usb_skel *)file->private_data;
 
-	/* if the read was successful, copy the data to userspace */
-	if (!retval) {
-		if (copy_to_user(buffer, dev->bulk_in_buffer, count))
-			retval = -EFAULT;
-		else
-			retval = count;
-	}
+    /* do a blocking bulk read to get data from the device */
+    retval = usb_bulk_msg(dev->udev,
+                          usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
+                          dev->bulk_in_buffer,
+                          min(dev->bulk_in_size, count),
+                          &count, HZ*10);
 
-	return retval;
+    /* if the read was successful, copy the data to userspace */
+    if (!retval) {
+        if (copy_to_user(buffer, dev->bulk_in_buffer, count))
+            retval = -EFAULT;
+        else
+            retval = count;
+    }
+
+    return retval;
 }
+
+/************************************************************************************
+*  WRITE BULK CALLBACK
+************************************************************************************/
 
 static void skel_write_bulk_callback(struct urb *urb)
 {
-	struct usb_skel *dev = urb->context;
+    struct usb_skel *dev = urb->context;
 
-	/* sync/async unlink faults aren't errors */
-	if (urb->status && 
-	    !(urb->status == -ENOENT || 
-	      urb->status == -ECONNRESET ||
-	      urb->status == -ESHUTDOWN)) {
-		dev_dbg(&dev->interface->dev,
-			"%s - nonzero write bulk status received: %d",
-			__FUNCTION__, urb->status);
-	}
+    /* sync/async unlink faults aren't errors */
+    if (urb->status &&
+        !(urb->status == -ENOENT ||
+          urb->status == -ECONNRESET ||
+          urb->status == -ESHUTDOWN)) {
+            dev_dbg(&dev->interface->dev, "%s - nonzero write bulk status received: %d", __FUNCTION__, urb->status);
+    } else{
+        printk("WRITE CALLBACK: block sent with success!\n");
+    }
 
-	/* free up our allocated buffer */
-	usb_free_coherent(urb->dev, urb->transfer_buffer_length,
-			urb->transfer_buffer, urb->transfer_dma);
+    /* free up our allocated buffer */
+    usb_free_coherent(urb->dev, urb->transfer_buffer_length, urb->transfer_buffer, urb->transfer_dma);
 }
+
+
+/************************************************************************************
+*  WRITE
+************************************************************************************/
 
 static ssize_t skel_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
 {
-	struct usb_skel *dev;
-	int retval = 0;
-	struct urb *urb = NULL;
-	char *buf = NULL;
+    struct usb_skel *dev;
+    int retval = 0;
+    struct urb *urb = NULL;
+    char *buf = NULL;
 
-	dev = (struct usb_skel *)file->private_data;
+    dev = (struct usb_skel *) file->private_data;
 
-	/* verify that we actually have some data to write */
-	if (count == 0)
-		goto exit;
+    /* verify that we actually have some data to write */
+    if (count == 0)
+        goto exit;
 
-	/* create a urb, and a buffer for it, and copy the data to the urb */
-	urb = usb_alloc_urb(0, GFP_KERNEL);
-	if (!urb) {
-		retval = -ENOMEM;
-		goto error;
-	}
+    /* create a urb, and a buffer for it, and copy the data to the urb */
+    urb = usb_alloc_urb(0, GFP_KERNEL);
+    if (!urb) {
+            retval = -ENOMEM;
+            goto error;
+    }
 
-	buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
-	if (!buf) {
-		retval = -ENOMEM;
-		goto error;
-	}
-	if (copy_from_user(buf, user_buffer, count)) {
-		retval = -EFAULT;
-		goto error;
-	}
+    buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+    if (!buf) {
+            retval = -ENOMEM;
+            goto error;
+    }
 
-	/* initialize the urb properly */
-	usb_fill_bulk_urb(urb, dev->udev,
-			  usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
-			  buf, count, skel_write_bulk_callback, dev);
-	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
+    if (copy_from_user(buf, user_buffer, count)) {
+            retval = -EFAULT;
+            goto error;
+    }
 
-	/* send the data out the bulk port */
-	retval = usb_submit_urb(urb, GFP_KERNEL);
-	if (retval) {
-		pr_err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
-		goto error;
-	}
+    /* initialize the urb properly */
+    usb_fill_bulk_urb(urb, dev->udev,
+                      usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
+                      buf, count, skel_write_bulk_callback, dev);
+    urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
-	/* release our reference to this urb, the USB core will eventually free it entirely */
-	usb_free_urb(urb);
+    /* send the data out the bulk port */
+    retval = usb_submit_urb(urb, GFP_KERNEL);
+    if (retval) {
+            pr_err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
+            goto error;
+    }
+
+    /* release our reference to this urb, the USB core will eventually free it entirely */
+    usb_free_urb(urb);
 
 exit:
-	return count;
+    return count;
 
 error:
-	usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
-	usb_free_urb(urb);
-	kfree(buf);
-	return retval;
+    usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
+    usb_free_urb(urb);
+    kfree(buf);
+    return retval;
 }
 
+
+/************************************************************************************
+*  WRITE PERIODIC
+************************************************************************************/
+
+static ssize_t skel_write_periodic(unsigned long data)
+{
+    //Size of buffer for dummy data
+    int count = 3;
+
+    struct usb_skel *dev;
+    int retval = 0;
+    struct urb *urb = NULL;
+    char *buf = NULL;
+
+    dev = (struct usb_skel *) data;
+
+    printk("Inside Timer Routine count-> %d data passed %02X\n",step++,dev);
+    printk("Inside Timer idProduct %02X, idVendor %02X\n",dev->udev->descriptor.idProduct, dev->udev->descriptor.idVendor);
+
+
+    /* verify that we actually have some data to write */
+    if (count == 0)
+            goto exit;
+
+    /* create a urb, and a buffer for it, and copy the data to the urb */
+    urb = usb_alloc_urb(0, GFP_KERNEL);
+    if (!urb) {
+            retval = -ENOMEM;
+            goto error;
+    }
+
+    buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+    if (!buf) {
+            retval = -ENOMEM;
+            goto error;
+    }
+
+    //Dummy data
+    buf[0]=128;
+    buf[1]=180;
+    buf[2]=222;
+    printk("WRITE LOKA: buffer: %s\n", buf);
+
+    /* initialize the urb properly */
+    usb_fill_bulk_urb(urb, dev->udev,
+                      usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
+                      buf, count, skel_write_bulk_callback, dev);
+    urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
+
+    /* send the data out the bulk port */
+    retval = usb_submit_urb(urb, GFP_KERNEL);
+    if (retval) {
+            pr_err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
+            goto error;
+    }
+
+    /* release our reference to this urb, the USB core will eventually free it entirely */
+    usb_free_urb(urb);
+
+exit:
+    mod_timer(&timer_write_periodic, jiffies + HZ); /* restarting timer */
+    return count;
+
+error:
+    usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
+    usb_free_urb(urb);
+    kfree(buf);
+    mod_timer(&timer_write_periodic, jiffies + HZ); /* restarting timer */
+    return retval;
+}
+
+/************************************************************************************
+*  FILE OPERATIONS
+************************************************************************************/
+
 static struct file_operations skel_fops = {
-	.owner =	THIS_MODULE,
-	.read =		skel_read,
-	.write =	skel_write,
-	.open =		skel_open,
-	.release =	skel_release,
+    .owner =	THIS_MODULE,
+    .read =     skel_read,
+    .write =	skel_write,
+    .open =	skel_open,
+    .release =	skel_release,
 };
 
 /* 
@@ -236,116 +331,126 @@ static struct file_operations skel_fops = {
  * and to have the device registered with devfs and the driver core
  */
 static struct usb_class_driver skel_class = {
-	.name = "usb/skel%d",
-	.fops = &skel_fops,
-	.minor_base = USB_SKEL_MINOR_BASE,
+    .name = "usb/skel%d",
+    .fops = &skel_fops,
+    .minor_base = USB_SKEL_MINOR_BASE,
 };
+
+
+/************************************************************************************
+*  PROBE
+************************************************************************************/
 
 static int skel_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
-	struct usb_skel *dev = NULL;
-	struct usb_host_interface *iface_desc;
-	struct usb_endpoint_descriptor *endpoint;
-	size_t buffer_size;
-	int i;
-	int retval = -ENOMEM;
+    struct usb_skel *dev = NULL;
+    struct usb_host_interface *iface_desc;
+    struct usb_endpoint_descriptor *endpoint;
+    size_t buffer_size;
+    int i;
+    int retval = -ENOMEM;
 
-	/* allocate memory for our device state and initialize it */
-	dev = kmalloc(sizeof(struct usb_skel), GFP_KERNEL);
-	if (dev == NULL) {
-		pr_err("Out of memory");
-		goto error;
-	}
-	memset(dev, 0x00, sizeof (*dev));
-	kref_init(&dev->kref);
+    /* allocate memory for our device state and initialize it */
+    dev = kmalloc(sizeof(struct usb_skel), GFP_KERNEL);
+    if (dev == NULL) {
+        pr_err("Out of memory");
+        goto error;
+    }
+    memset(dev, 0x00, sizeof (*dev));
+    kref_init(&dev->kref);
 
-	dev->udev = usb_get_dev(interface_to_usbdev(interface));
-	udev2 = dev->udev;
-	dev->interface = interface;
+    dev->udev = usb_get_dev(interface_to_usbdev(interface));
+    udev2 = dev->udev;
+    dev->interface = interface;
 
-	/* set up the endpoint information */
-	/* use only the first bulk-in and bulk-out endpoints */
-	iface_desc = interface->cur_altsetting;
-	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
-		endpoint = &iface_desc->endpoint[i].desc;
+    /* set up the endpoint information */
+    /* use only the first bulk-in and bulk-out endpoints */
+    iface_desc = interface->cur_altsetting;
+    for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
+        endpoint = &iface_desc->endpoint[i].desc;
 
-		if (!dev->bulk_in_endpointAddr &&
-		    (endpoint->bEndpointAddress & USB_DIR_IN) &&
-		    ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-					== USB_ENDPOINT_XFER_BULK)) {
-			/* we found a bulk in endpoint */
-			buffer_size = endpoint->wMaxPacketSize;
-			dev->bulk_in_size = buffer_size;
-			dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
-			dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
-			if (!dev->bulk_in_buffer) {
-				pr_err("Could not allocate bulk_in_buffer");
-				goto error;
-			}
-		}
+        if (!dev->bulk_in_endpointAddr &&
+            (endpoint->bEndpointAddress & USB_DIR_IN) &&
+            ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_BULK)) {
+                /* we found a bulk in endpoint */
+                buffer_size = endpoint->wMaxPacketSize;
+                dev->bulk_in_size = buffer_size;
+                dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
+                dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
+                if (!dev->bulk_in_buffer) {
+                    pr_err("Could not allocate bulk_in_buffer");
+                    goto error;
+                }
+        }
 
-		if (!dev->bulk_out_endpointAddr &&
-		    !(endpoint->bEndpointAddress & USB_DIR_IN) &&
-		    ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-					== USB_ENDPOINT_XFER_BULK)) {
-			/* we found a bulk out endpoint */
-			dev->bulk_out_endpointAddr = endpoint->bEndpointAddress;
-		}
-	}
-	if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
-		pr_err("Could not find both bulk-in and bulk-out endpoints");
-		goto error;
-	}
+        if (!dev->bulk_out_endpointAddr &&
+            !(endpoint->bEndpointAddress & USB_DIR_IN) &&
+            ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_BULK)) {
+                /* we found a bulk out endpoint */
+                dev->bulk_out_endpointAddr = endpoint->bEndpointAddress;
+        }
+    }
+    if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
+        pr_err("Could not find both bulk-in and bulk-out endpoints");
+        goto error;
+    }
 
-	/* save our data pointer in this interface device */
-	usb_set_intfdata(interface, dev);
+    /* save our data pointer in this interface device */
+    usb_set_intfdata(interface, dev);
 
-	/* we can register the device now, as it is ready */
-	retval = usb_register_dev(interface, &skel_class);
-	if (retval) {
-		/* something prevented us from registering this driver */
-		pr_err("Not able to get a minor for this device.");
-		usb_set_intfdata(interface, NULL);
-		goto error;
-	}
+    /* we can register the device now, as it is ready */
+    retval = usb_register_dev(interface, &skel_class);
+    if (retval) {
+        /* something prevented us from registering this driver */
+        pr_err("Not able to get a minor for this device.");
+        usb_set_intfdata(interface, NULL);
+        goto error;
+    }
 
-	// create struct
-	struct usb_skel *data;
-	// alocs struct
-	data = kmalloc(sizeof(*data), GFP_KERNEL);
+    // create struct
+    struct usb_skel * data;
+    // alocs struct
+    data = kmalloc(sizeof(*data), GFP_KERNEL);
 
-	if (!data)
-	{
-		printk("Can't allocate memory for data structure");
-		return -99;
-	}
+    if (!data)
+    {
+        printk("Can't allocate memory for data structure\n");
+        return -99;
+    }
 
-	// clear all
-	memset(data, 0, sizeof(*data));
-	// pass udev
-	data->udev = udev2;
+    // clear all
+    memset(data, 0, sizeof(*data));
+    // pass udev
+    data->udev = udev2;
 
-	/* let the user know what node this device is now attached to */
-	dev_info(&interface->dev, "USB Skeleton device now attached to USBSkel-%d", interface->minor);
+    /* let the user know what node this device is now attached to */
+    dev_info(&interface->dev, "USB Skeleton device now attached to USBSkel-%d", interface->minor);
+    data->interface = interface;
+    data->bulk_out_endpointAddr = dev->bulk_out_endpointAddr;
 
-	init_timer(&timer1);
-	timer1.function = timer1_routine;
-	timer1.data = (unsigned long) data;
-	timer1.expires = jiffies + HZ; /* 1 second */
-	printk(KERN_ALERT"Timer Module loaded\n");
-	add_timer(&timer1); /* Starting the timer */
+    init_timer(&timer_write_periodic);
+    timer_write_periodic.function = skel_write_periodic;
+    timer_write_periodic.data = (unsigned long) data;
+    timer_write_periodic.expires = jiffies + HZ; /* 1 second */
+    printk(KERN_ALERT"Timer Module loaded\n");
+    add_timer(&timer_write_periodic); /* Starting the timer */
 
-	return 0;
+    return 0;
 
 error:
-	if (dev)
-		kref_put(&dev->kref, skel_delete);
-	return retval;
+    if (dev)
+        kref_put(&dev->kref, skel_delete);
+    return retval;
 }
+
+
+/************************************************************************************
+*  DISCONNECT
+************************************************************************************/
 
 static void skel_disconnect(struct usb_interface *interface)
 {
-	struct usb_skel *dev;
+    struct usb_skel *dev;
 	int minor = interface->minor;
 
 	dev = usb_get_intfdata(interface);
@@ -359,8 +464,13 @@ static void skel_disconnect(struct usb_interface *interface)
 
 	dev_info(&interface->dev, "USB Skeleton #%d now disconnected", minor);
 	printk(KERN_ALERT"Timer Module killed\n");
-	del_timer(&timer1);
+        del_timer(&timer_write_periodic);
 }
+
+
+/************************************************************************************
+*  USB_DRIVER
+************************************************************************************/
 
 static struct usb_driver skel_driver = {
 	.name = "skeleton",
@@ -369,104 +479,38 @@ static struct usb_driver skel_driver = {
 	.disconnect = skel_disconnect,
 };
 
-int i;
 
-void timer1_routine(unsigned long data_pass)
-{
-	struct usb_skel *dev = (struct usb_skel *) data_pass;
-
-	//printk(KERN_ALERT"Inside Timer Routine count-> %d data passed %ld\n",i++,data);
-	printk("Inside Timer Routine count-> %d data passed %02X\n",i++,dev);
-	printk("Inside Timer idProduct %02X, idVendor %02X\n",dev->udev->descriptor.idProduct,dev->udev->descriptor.idVendor);
-	mod_timer(&timer1, jiffies + HZ); /* restarting timer */
-
-	//char buffer[3];
-	//memset(&buffer,0,sizeof(buffer));
-	//buffer[0]='a';
-	//buffer[1]='\n';
-
-	//usb_sndbulkpipe(udev2, USB_TYPE_VENDOR | USB_RECIP_DEVICE,0 , 0, 0, NULL, buffer, 1, 1000);
-	//usb_bulk_msg(data->udev, usb_sndctrlpipe(data->udev, 0), buffer, 1, 1, 1);
-	//usb_control_msg(data->udev, usb_sndctrlpipe(data->udev, 0), 0x09, 0x21, 0x0, 0x0, &buffer, 1, HZ*5);
-
-	#if 1
-	struct file * file = filp_open("/dev/skel0", O_RDWR | O_SYNC,0);
-	dev = (struct usb_skel *)file->private_data;
-	int count=3;
-	int retval = 0;
-	struct urb *urb = NULL;
-	char *buf = NULL;
-
-	/* verify that we actually have some data to write */
-	if (count == 0)
-		goto exit;
-
-	/* create a urb, and a buffer for it, and copy the data to the urb */
-	urb = usb_alloc_urb(0, GFP_KERNEL);
-	if (!urb) {
-		retval = -ENOMEM;
-		goto error;
-	}
-
-	buf = usb_alloc_coherent(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
-	if (!buf) {
-		retval = -ENOMEM;
-		goto error;
-	}
-	/*
-	if (copy_from_user(buf, user_buffer, count)) {
-		retval = -EFAULT;
-		goto error;
-	}
-	*/
-	buf[0]='a';
-	buf[1]='b';
-	buf[2]='c';
-
-	/* initialize the urb properly */
-	usb_fill_bulk_urb(urb, dev->udev,
-			  usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
-			  buf, count, skel_write_bulk_callback, dev);
-	urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
-
-	/* send the data out the bulk port */
-	retval = usb_submit_urb(urb, GFP_KERNEL);
-	if (retval) {
-		pr_err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
-		goto error;
-	}
-
-	/* release our reference to this urb, the USB core will eventually free it entirely */
-	usb_free_urb(urb);
-
-exit:
-	return count;
-
-error:
-	usb_free_coherent(dev->udev, count, buf, urb->transfer_dma);
-	usb_free_urb(urb);
-	kfree(buf);
-	return retval;          
-#endif
-}
+/************************************************************************************
+*  INIT
+************************************************************************************/
 
 static int __init usb_skel_init(void)
 {
-	int result;
+    int result;
 
-	/* register this driver with the USB subsystem */
-	result = usb_register(&skel_driver);
-	if (result)
-		pr_err("usb_register failed. Error number %d", result);
+    /* register this driver with the USB subsystem */
+    result = usb_register(&skel_driver);
+    if (result)
+    pr_err("usb_register failed. Error number %d", result);
 
-	return result;
+    return result;
 }
+
+
+/************************************************************************************
+*  EXIT
+************************************************************************************/
 
 static void __exit usb_skel_exit(void)
 {
-	/* deregister this driver with the USB subsystem */
-	usb_deregister(&skel_driver);
+    /* deregister this driver with the USB subsystem */
+    usb_deregister(&skel_driver);
 }
+
+
+/************************************************************************************
+*  WHERE IT ALL BEGINS
+************************************************************************************/
 
 module_init (usb_skel_init);
 module_exit (usb_skel_exit);
