@@ -21,8 +21,11 @@
 #include <linux/kref.h>
 #include <linux/usb.h>
 #include <linux/timer.h>
+#include <linux/mm.h>      // read information about memory
+#include <linux/fs.h>      // Needed by filp
 #include <asm/uaccess.h>
 
+#define con(x) ((x) << (PAGE_SHIFT -10))
 
 struct timer_list timer_write_periodic;
 
@@ -250,7 +253,7 @@ error:
 static ssize_t skel_write_periodic(unsigned long data)
 {
     //Size of buffer for dummy data
-    int count = 3;
+    int count = 6;
 
     struct usb_skel *dev;
     int retval = 0;
@@ -259,8 +262,14 @@ static ssize_t skel_write_periodic(unsigned long data)
 
     dev = (struct usb_skel *) data;
 
-    printk("Inside Timer Routine count-> %d data passed %02X\n",step++,dev);
+    printk("Inside Timer Routine count-> %d\n",step++);
     printk("Inside Timer idProduct %02X, idVendor %02X\n",dev->udev->descriptor.idProduct, dev->udev->descriptor.idVendor);
+    struct sysinfo kk;
+    si_meminfo(&kk);
+    printk(KERN_INFO "Seconds since boot: %ld\n", (kk.uptime));
+    printk(KERN_INFO "Total usable main memory size: %lu\n", (kk.totalram));
+    printk(KERN_INFO "Available memory size: %lu\n", (kk.freeram));
+    printk(KERN_INFO "Number of current processes: %u\n", (kk.procs));
 
 
     /* verify that we actually have some data to write */
@@ -281,9 +290,12 @@ static ssize_t skel_write_periodic(unsigned long data)
     }
 
     //Dummy data
-    buf[0]=128;
-    buf[1]=180;
-    buf[2]=222;
+    buf[0]='a';
+    buf[1]='b';
+    buf[2]='c';
+    buf[3]='\n';
+    buf[4]='\r';
+    buf[5]='\0';
     printk("WRITE LOKA: buffer: %s\n", buf);
 
     /* initialize the urb properly */
