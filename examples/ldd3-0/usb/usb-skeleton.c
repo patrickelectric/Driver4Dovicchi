@@ -322,10 +322,14 @@ static ssize_t skel_write_periodic(unsigned long data)
     }
 
     //Dummy data
+    printk("load %d\n",LOAD_INT(a)*100+LOAD_FRAC(a));
+    //(kk.totalram)*((unsigned long long)kk.mem_unit/1048576)
+    printk("mem %d\n",((kk.totalram)*(unsigned long long)kk.mem_unit/1048576));
+    printk("mem %d\n",(100-((kk.freeram)*(unsigned long long)kk.mem_unit/1048576)*100/((kk.totalram)*(unsigned long long)kk.mem_unit/1048576)));
     buf[0]='R';
-    buf[1]=1;//(int16_t)(avenrun[0] << (SI_LOAD_SHIFT - FSHIFT)*100);
-    buf[2]=2;//(kk.freeram)*((unsigned long long)kk.mem_unit/1048576)*100/(kk.totalram)*((unsigned long long)kk.mem_unit/1048576);
-    buf[3]=3;//hours;
+    buf[1]='a';//(int16_t)(avenrun[0] << (SI_LOAD_SHIFT - FSHIFT)*100);
+    buf[2]=(char)(LOAD_INT(a)*100+LOAD_FRAC(a));
+    buf[3]=(char)(100-((kk.freeram)*(unsigned long long)kk.mem_unit/1048576)*100/((kk.totalram)*(unsigned long long)kk.mem_unit/1048576));//hours;
     buf[4]='l';
     printk("WRITE LOKA: buffer:\n");
     int i;
