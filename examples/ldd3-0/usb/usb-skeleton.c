@@ -21,9 +21,14 @@
 #include <linux/kref.h>
 #include <linux/usb.h>
 #include <linux/timer.h>
+#include <linux/syscalls.h>
 #include <linux/mm.h>      // read information about memory
 #include <linux/fs.h>      // Needed by filp
 #include <asm/uaccess.h>
+#include <uapi/linux/sysinfo.h>
+#include <linux/unistd.h>       /* for _syscallX macros/related stuff */
+#include <linux/kernel.h>       /* for struct sysinfo */
+//#include <sys/sysinfo.h>
 
 #define con(x) ((x) << (PAGE_SHIFT -10))
 
@@ -266,10 +271,23 @@ static ssize_t skel_write_periodic(unsigned long data)
     printk("Inside Timer idProduct %02X, idVendor %02X\n",dev->udev->descriptor.idProduct, dev->udev->descriptor.idVendor);
     struct sysinfo kk;
     si_meminfo(&kk);
-    printk(KERN_INFO "Seconds since boot: %ld\n", (kk.uptime));
-    printk(KERN_INFO "Total usable main memory size: %lu\n", (kk.totalram));
-    printk(KERN_INFO "Available memory size: %lu\n", (kk.freeram));
+    //sys_sysinfo(&kk);
+    
+    kk.uptime=jiffies/HZ;
+    int days=kk.uptime/86400;
+    int hours=kk.uptime/3600 - days*24;
+    int mins=(kk.uptime/60) - (days*1440) - (hours*60);
+
+	printk(KERN_INFO "Days since boot: %d\n", (days));
+    printk(KERN_INFO "Hours since boot: %d\n", (hours));
+    printk(KERN_INFO "Mins since boot: %d\n", (mins));
+    printk(KERN_INFO "Seconds since boot: %d\n", (kk.uptime));
+    printk(KERN_INFO "Total usable main memory size: %lu\n", (kk.totalram)*(unsigned long long)kk.mem_unit/1048576);
+    printk(KERN_INFO "Available memory size: %lu\n", (kk.freeram)*(unsigned long long)kk.mem_unit/1048576);
     printk(KERN_INFO "Number of current processes: %u\n", (kk.procs));
+	
+	
+
 
 
     /* verify that we actually have some data to write */
