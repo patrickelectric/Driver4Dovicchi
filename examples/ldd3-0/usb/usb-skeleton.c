@@ -28,6 +28,9 @@
 #include <uapi/linux/sysinfo.h>
 #include <linux/unistd.h>       /* for _syscallX macros/related stuff */
 #include <linux/kernel.h>       /* for struct sysinfo */
+#include <linux/sched.h>
+#include <linux/stat.h>
+
 //#include <sys/sysinfo.h>
 
 #define con(x) ((x) << (PAGE_SHIFT -10))
@@ -254,11 +257,13 @@ error:
 /************************************************************************************
 *  WRITE PERIODIC
 ************************************************************************************/
+#define LOAD_INT(x) ((x) >> FSHIFT)
+#define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
 static ssize_t skel_write_periodic(unsigned long data)
 {
     //Size of buffer for dummy data
-    int count = 1;
+    int count = 5;
 
     struct usb_skel *dev;
     int retval = 0;
@@ -282,6 +287,15 @@ static ssize_t skel_write_periodic(unsigned long data)
     printk(KERN_INFO "Hours since boot: %d\n", (hours));
     printk(KERN_INFO "Mins since boot: %d\n", (mins));
     printk(KERN_INFO "Seconds since boot: %d\n", (kk.uptime));
+    printk(KERN_INFO "CPU load: %d\n", (kk.loads[0]));
+    printk(KERN_INFO "CPU load: %d\n", (avenrun[0] << (SI_LOAD_SHIFT - FSHIFT)));
+    printk(KERN_INFO "CPU load: %d\n", (avenrun[1] << (SI_LOAD_SHIFT - FSHIFT)));
+    printk(KERN_INFO "CPU load: %d\n", (avenrun[2] << (SI_LOAD_SHIFT - FSHIFT)));
+    int a, b, c;
+    a = avenrun[0] + (FIXED_1/200);
+    b = avenrun[1] + (FIXED_1/200);
+    c = avenrun[2] + (FIXED_1/200);
+    printk(KERN_INFO "%d.%02d %d.%02d %d.%02d\n", LOAD_INT(a), LOAD_FRAC(a), LOAD_INT(b), LOAD_FRAC(b), LOAD_INT(c), LOAD_FRAC(c));
     printk(KERN_INFO "Total usable main memory size: %lu\n", (kk.totalram)*(unsigned long long)kk.mem_unit/1048576);
     printk(KERN_INFO "Available memory size: %lu\n", (kk.freeram)*(unsigned long long)kk.mem_unit/1048576);
     printk(KERN_INFO "Number of current processes: %u\n", (kk.procs));
@@ -308,13 +322,17 @@ static ssize_t skel_write_periodic(unsigned long data)
     }
 
     //Dummy data
-    buf[0]=0x5a;
-    buf[1]='b';
-    buf[2]='c';
-    buf[3]='\n';
-    buf[4]='\r';
-    buf[5]='\0';
-    printk("WRITE LOKA: buffer: %s\n", buf);
+    buf[0]='R';
+    buf[1]=1;//(int16_t)(avenrun[0] << (SI_LOAD_SHIFT - FSHIFT)*100);
+    buf[2]=2;//(kk.freeram)*((unsigned long long)kk.mem_unit/1048576)*100/(kk.totalram)*((unsigned long long)kk.mem_unit/1048576);
+    buf[3]=3;//hours;
+    buf[4]='l';
+    printk("WRITE LOKA: buffer:\n");
+    int i;
+    for (i= 0; i < 5; ++i)
+    {
+    	printk("%d - %c (%d)\n",buf[i],buf[i],i);
+    }
 
     /* initialize the urb properly */
     usb_fill_bulk_urb(urb, dev->udev,
