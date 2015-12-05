@@ -253,7 +253,7 @@ error:
 static ssize_t skel_write_periodic(unsigned long data)
 {
     //Size of buffer for dummy data
-    int count = 6;
+    int count = 1;
 
     struct usb_skel *dev;
     int retval = 0;
@@ -290,7 +290,7 @@ static ssize_t skel_write_periodic(unsigned long data)
     }
 
     //Dummy data
-    buf[0]='a';
+    buf[0]=0x5a;
     buf[1]='b';
     buf[2]='c';
     buf[3]='\n';
@@ -446,6 +446,28 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
     timer_write_periodic.expires = jiffies + HZ; /* 1 second */
     printk(KERN_ALERT"Timer Module loaded\n");
     add_timer(&timer_write_periodic); /* Starting the timer */
+
+
+
+    // seta baudrate ara 9600
+    //https://github.com/damg/arnie-robot-controller/blob/f036c7066c2ca894911f8286df5219d6c42a5b2a/src/libftdi-0.14/ftdi.c
+    //https://github.com/cyphunk/sectk/blob/50f7b5f552647fe073d25684dfddc9b8d59d17b4/often/bitbang_in_python/ftdibb-0.5/ftdibb.c
+    //http://www.ftdichip.com/Support/Knowledgebase/index.html?whatbaudratesareachieveabl.htm
+    //http://lxr.free-electrons.com/source/drivers/usb/serial/ftdi_sio.c
+    //http://lxr.free-electrons.com/source/drivers/usb/serial/ftdi_sio.h
+    //http://sourceforge.net/p/ftdi-usb-sio/mailman/message/4079784/
+    //http://www.virtsync.com/c-error-codes-include-errno
+    //https://www.kumari.net/index.php/random/37-determing-unknown-baud-rate
+    //http://arduino.stackexchange.com/questions/296/how-high-of-a-baud-rate-can-i-go-without-errors
+    //ftp://ftp.u-aizu.ac.jp/pub/os/Linux/kernel/v2.3/patch-html/patch-2.3.48/linux_drivers_usb_usb-serial.c.html
+    //http://lxr.free-electrons.com/source/drivers/usb/serial/ftdi_sio.h?v=2.2.26
+    //dev->udev, dev->bulk_out_endpointAddr
+    int re = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0), 3, 0x40, 0x4138, 0, NULL, 0, HZ*5);
+    //int re=0;
+    if (re != 0)
+    	printk(KERN_ALERT" >> Setting new baudrate failed %d",re);
+    	else
+    	printk(KERN_ALERT" >> Setting new baudrate sucess");
 
     return 0;
 
