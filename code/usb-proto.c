@@ -1,18 +1,3 @@
-/*
- * USB Skeleton driver - 2.0
- *
- * Copyright (C) 2001-2004 Greg Kroah-Hartman (greg@kroah.com)
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License as
- *	published by the Free Software Foundation, version 2.
- *
- * This driver is based on the 2.6.3 version of drivers/usb/usb-skeleton.c 
- * but has been rewritten to be easy to read and use, as no locks are now
- * needed anymore.
- *
- */
-
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -31,20 +16,19 @@
 #include <linux/sched.h>
 #include <linux/stat.h>
 
-//#include <sys/sysinfo.h>
 
 #define con(x) ((x) << (PAGE_SHIFT -10))
 
 struct timer_list timer_write_periodic;
 
 
-static struct usb_device_id skel_table [] = {
+static struct usb_device_id proto_table [] = {
         //{ USB_DEVICE(0x1A86, 0x7523) },  // ARDUINO NANO DOUGLAs
-		{ USB_DEVICE(0x0403, 0x6001) },  // ARDUINO NANO DOUGLAs
+		{ USB_DEVICE(0x0403, 0x6001) },  // ARDUINO NANO Patrick
         { }				 // Last entry
 };
 
-MODULE_DEVICE_TABLE (usb, skel_table);
+MODULE_DEVICE_TABLE (usb, proto_table);
 
 
 /* Get a minor range for your devices from the usb maintainer */
@@ -62,9 +46,9 @@ struct usb_skel {
     struct kref                 kref;
 };
 
-#define to_skel_dev(d) container_of(d, struct usb_skel, kref)
+#define to_proto_dev(d) container_of(d, struct usb_skel, kref)
 
-static struct usb_driver skel_driver;
+static struct usb_driver proto_driver;
 
 void timer1_routine(unsigned long data_pass);
 
@@ -77,9 +61,9 @@ int step;
 *  DELETE
 ************************************************************************************/
 
-static void skel_delete(struct kref *kref)
+static void proto_delete(struct kref *kref)
 {	
-    struct usb_skel *dev = to_skel_dev(kref);
+    struct usb_skel *dev = to_proto_dev(kref);
     usb_put_dev(dev->udev);
     kfree (dev->bulk_in_buffer);
     kfree (dev);
@@ -89,7 +73,7 @@ static void skel_delete(struct kref *kref)
 *  OPEN
 ************************************************************************************/
 
-static int skel_open(struct inode *inode, struct file *file)
+static int proto_open(struct inode *inode, struct file *file)
 {
     struct usb_skel *dev;
     struct usb_interface *interface;
@@ -98,7 +82,7 @@ static int skel_open(struct inode *inode, struct file *file)
 
     subminor = iminor(inode);
 
-    interface = usb_find_interface(&skel_driver, subminor);
+    interface = usb_find_interface(&proto_driver, subminor);
     if (!interface) {
         pr_err("%s - error, can't find device for minor %d", __FUNCTION__, subminor);
         retval = -ENODEV;
@@ -126,7 +110,7 @@ exit:
 *  RELEASE
 ************************************************************************************/
 
-static int skel_release(struct inode *inode, struct file *file)
+static int proto_release(struct inode *inode, struct file *file)
 {
     struct usb_skel *dev;
 
@@ -135,7 +119,7 @@ static int skel_release(struct inode *inode, struct file *file)
         return -ENODEV;
 
     /* decrement the count on our device */
-    kref_put(&dev->kref, skel_delete);
+    kref_put(&dev->kref, proto_delete);
     return 0;
 }
 
@@ -144,7 +128,7 @@ static int skel_release(struct inode *inode, struct file *file)
 *  READ
 ************************************************************************************/
 
-static ssize_t skel_read(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
+static ssize_t proto_read(struct file *file, char __user *buffer, size_t count, loff_t *ppos)
 {
     struct usb_skel *dev;
     int retval = 0;
@@ -173,7 +157,7 @@ static ssize_t skel_read(struct file *file, char __user *buffer, size_t count, l
 *  WRITE BULK CALLBACK
 ************************************************************************************/
 
-static void skel_write_bulk_callback(struct urb *urb)
+static void proto_write_bulk_callback(struct urb *urb)
 {
     struct usb_skel *dev = urb->context;
 
@@ -196,7 +180,7 @@ static void skel_write_bulk_callback(struct urb *urb)
 *  WRITE
 ************************************************************************************/
 
-static ssize_t skel_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
+static ssize_t proto_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
 {
     struct usb_skel *dev;
     int retval = 0;
@@ -230,7 +214,7 @@ static ssize_t skel_write(struct file *file, const char __user *user_buffer, siz
     /* initialize the urb properly */
     usb_fill_bulk_urb(urb, dev->udev,
                       usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
-                      buf, count, skel_write_bulk_callback, dev);
+                      buf, count, proto_write_bulk_callback, dev);
     urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
     /* send the data out the bulk port */
@@ -260,7 +244,7 @@ error:
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
-static ssize_t skel_write_periodic(unsigned long data)
+static ssize_t proto_write_periodic(unsigned long data)
 {
     //Size of buffer for dummy data
     int count = 5;
@@ -341,7 +325,7 @@ static ssize_t skel_write_periodic(unsigned long data)
     /* initialize the urb properly */
     usb_fill_bulk_urb(urb, dev->udev,
                       usb_sndbulkpipe(dev->udev, dev->bulk_out_endpointAddr),
-                      buf, count, skel_write_bulk_callback, dev);
+                      buf, count, proto_write_bulk_callback, dev);
     urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
     /* send the data out the bulk port */
@@ -370,21 +354,21 @@ error:
 *  FILE OPERATIONS
 ************************************************************************************/
 
-static struct file_operations skel_fops = {
+static struct file_operations proto_fops = {
     .owner =	THIS_MODULE,
-    .read =     skel_read,
-    .write =	skel_write,
-    .open =	skel_open,
-    .release =	skel_release,
+    .read =     proto_read,
+    .write =	proto_write,
+    .open =	proto_open,
+    .release =	proto_release,
 };
 
 /* 
  * usb class driver info in order to get a minor number from the usb core,
  * and to have the device registered with devfs and the driver core
  */
-static struct usb_class_driver skel_class = {
+static struct usb_class_driver proto_class = {
     .name = "usb/skel%d",
-    .fops = &skel_fops,
+    .fops = &proto_fops,
     .minor_base = USB_SKEL_MINOR_BASE,
 };
 
@@ -393,7 +377,7 @@ static struct usb_class_driver skel_class = {
 *  PROBE
 ************************************************************************************/
 
-static int skel_probe(struct usb_interface *interface, const struct usb_device_id *id)
+static int proto_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
     struct usb_skel *dev = NULL;
     struct usb_host_interface *iface_desc;
@@ -451,7 +435,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
     usb_set_intfdata(interface, dev);
 
     /* we can register the device now, as it is ready */
-    retval = usb_register_dev(interface, &skel_class);
+    retval = usb_register_dev(interface, &proto_class);
     if (retval) {
         /* something prevented us from registering this driver */
         pr_err("Not able to get a minor for this device.");
@@ -481,7 +465,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
     data->bulk_out_endpointAddr = dev->bulk_out_endpointAddr;
 
     init_timer(&timer_write_periodic);
-    timer_write_periodic.function = skel_write_periodic;
+    timer_write_periodic.function = proto_write_periodic;
     timer_write_periodic.data = (unsigned long) data;
     timer_write_periodic.expires = jiffies + HZ; /* 1 second */
     printk(KERN_ALERT"Timer Module loaded\n");
@@ -513,7 +497,7 @@ static int skel_probe(struct usb_interface *interface, const struct usb_device_i
 
 error:
     if (dev)
-        kref_put(&dev->kref, skel_delete);
+        kref_put(&dev->kref, proto_delete);
     return retval;
 }
 
@@ -522,7 +506,7 @@ error:
 *  DISCONNECT
 ************************************************************************************/
 
-static void skel_disconnect(struct usb_interface *interface)
+static void proto_disconnect(struct usb_interface *interface)
 {
     struct usb_skel *dev;
 	int minor = interface->minor;
@@ -531,10 +515,10 @@ static void skel_disconnect(struct usb_interface *interface)
 	usb_set_intfdata(interface, NULL);
 
 	/* give back our minor */
-	usb_deregister_dev(interface, &skel_class);
+	usb_deregister_dev(interface, &proto_class);
 
 	/* decrement our usage count */
-	kref_put(&dev->kref, skel_delete);
+	kref_put(&dev->kref, proto_delete);
 
 	dev_info(&interface->dev, "USB Skeleton #%d now disconnected", minor);
 	printk(KERN_ALERT"Timer Module killed\n");
@@ -546,11 +530,11 @@ static void skel_disconnect(struct usb_interface *interface)
 *  USB_DRIVER
 ************************************************************************************/
 
-static struct usb_driver skel_driver = {
-	.name = "skeleton",
-	.id_table = skel_table,
-	.probe = skel_probe,
-	.disconnect = skel_disconnect,
+static struct usb_driver proto_driver = {
+	.name = "usb-proto",
+	.id_table = proto_table,
+	.probe = proto_probe,
+	.disconnect = proto_disconnect,
 };
 
 
@@ -558,14 +542,14 @@ static struct usb_driver skel_driver = {
 *  INIT
 ************************************************************************************/
 
-static int __init usb_skel_init(void)
+static int __init usb_proto_init(void)
 {
     int result;
 
     /* register this driver with the USB subsystem */
-    result = usb_register(&skel_driver);
+    result = usb_register(&proto_driver);
     if (result)
-    pr_err("usb_register failed. Error number %d", result);
+        pr_err("usb_register failed. Error number %d", result);
 
     return result;
 }
@@ -575,10 +559,10 @@ static int __init usb_skel_init(void)
 *  EXIT
 ************************************************************************************/
 
-static void __exit usb_skel_exit(void)
+static void __exit usb_proto_exit(void)
 {
     /* deregister this driver with the USB subsystem */
-    usb_deregister(&skel_driver);
+    usb_deregister(&proto_driver);
 }
 
 
@@ -586,7 +570,7 @@ static void __exit usb_skel_exit(void)
 *  WHERE IT ALL BEGINS
 ************************************************************************************/
 
-module_init (usb_skel_init);
-module_exit (usb_skel_exit);
+module_init (usb_proto_init);
+module_exit (usb_proto_exit);
 
 MODULE_LICENSE("GPL");

@@ -1,4 +1,4 @@
-obj-m	:= usb-skeleton.o
+obj-m	:= usb-proto.o
 
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 PWD       := $(shell pwd)
